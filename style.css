@@ -297,6 +297,12 @@ button, input, select, textarea {
   color: var(--ink);
 }
 
+.btn-outline.is-copied {
+  border-color: var(--success);
+  color: var(--success-dark);
+  background: var(--success-tint);
+}
+
 .btn-ghost {
   background: transparent;
   border-color: var(--border);
