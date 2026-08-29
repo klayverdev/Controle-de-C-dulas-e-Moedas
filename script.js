@@ -40,6 +40,7 @@ const state = {
 };
 
 let pendingDeleteId = null;
+let pendingCopyValues = null;
 
 /* ------------------------------------------------------------------------ *
  * DOM cache
@@ -60,6 +61,8 @@ const dom = {
   deleteArea: document.getElementById('delete-area'),
   deletedField: document.getElementById('deleted-field'),
   deletedList: document.getElementById('deleted-list'),
+  copyArea: document.getElementById('copy-area'),
+  copyButton: document.querySelector('#copy-area [data-action="copy-balance"]'),
 };
 
 /* ------------------------------------------------------------------------ *
@@ -195,6 +198,24 @@ function describeValues(values) {
   `;
 }
 
+function buildPlainTextSummary(values) {
+  const notes = [];
+  const coins = [];
+
+  Object.entries(values).forEach(([rawValue, quantity]) => {
+    if (quantity === 0) return;
+    const value = Number(rawValue);
+    const line = `${quantity}x R$ ${formatDenominationValue(value)}`;
+    (isNote(value) ? notes : coins).push(line);
+  });
+
+  const blocks = [];
+  if (notes.length) blocks.push(`Notas\n${notes.join('\n')}`);
+  if (coins.length) blocks.push(`Moedas\n${coins.join('\n')}`);
+
+  return blocks.join('\n');
+}
+
 /* ------------------------------------------------------------------------ *
  * Renderização — operações apagadas
  * ------------------------------------------------------------------------ */
@@ -326,7 +347,7 @@ function processImport() {
  * Modal
  * ------------------------------------------------------------------------ */
 
-function openDetailModal(title, bodyHtml, deleteId = null) {
+function openDetailModal(title, bodyHtml, deleteId = null, copyValues = null) {
   dom.modalTitle.textContent = title;
   dom.modalBody.hidden = false;
   dom.modalBody.innerHTML = bodyHtml;
@@ -335,6 +356,10 @@ function openDetailModal(title, bodyHtml, deleteId = null) {
 
   pendingDeleteId = deleteId;
   dom.deleteArea.hidden = deleteId === null;
+
+  pendingCopyValues = copyValues;
+  dom.copyArea.hidden = copyValues === null;
+  if (copyValues !== null) resetCopyButton();
 
   dom.modal.classList.add('is-open');
 }
@@ -345,18 +370,21 @@ function openImportModal() {
   dom.deleteArea.hidden = true;
   dom.importField.hidden = false;
   dom.deletedField.hidden = true;
+  dom.copyArea.hidden = true;
+  pendingCopyValues = null;
   dom.modal.classList.add('is-open');
 }
 
 function closeModal() {
   dom.modal.classList.remove('is-open');
   pendingDeleteId = null;
+  pendingCopyValues = null;
 }
 
 function showHistoryDetails(id) {
   const entry = state.history.find((item) => item.id === id);
   if (!entry) return;
-  openDetailModal(`${entry.label} — detalhes`, describeValues(entry.values), entry.id);
+  openDetailModal(`${entry.label} — detalhes`, describeValues(entry.values), entry.id, entry.values);
 }
 
 function showCurrentBalance() {
@@ -364,7 +392,48 @@ function showCurrentBalance() {
   state.inventory.forEach((quantity, value) => {
     if (quantity !== 0) values[value] = quantity;
   });
-  openDetailModal('Saldo atual em caixa', describeValues(values));
+  openDetailModal('Saldo atual em caixa', describeValues(values), null, values);
+}
+
+function resetCopyButton() {
+  if (!dom.copyButton) return;
+  dom.copyButton.textContent = 'Copiar contagem';
+  dom.copyButton.classList.remove('is-copied');
+}
+
+function copyBalanceToClipboard() {
+  if (!pendingCopyValues) return;
+  const text = buildPlainTextSummary(pendingCopyValues);
+  if (!text) return;
+
+  const onCopied = () => {
+    dom.copyButton.textContent = 'Copiado!';
+    dom.copyButton.classList.add('is-copied');
+    setTimeout(resetCopyButton, 1500);
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onCopied).catch(() => fallbackCopy(text, onCopied));
+  } else {
+    fallbackCopy(text, onCopied);
+  }
+}
+
+function fallbackCopy(text, onCopied) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    onCopied();
+  } catch (error) {
+    console.error('Não foi possível copiar automaticamente.', error);
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function showDeletedHistory() {
@@ -373,8 +442,10 @@ function showDeletedHistory() {
   dom.importField.hidden = true;
   dom.deleteArea.hidden = true;
   dom.deletedField.hidden = false;
+  dom.copyArea.hidden = true;
 
   pendingDeleteId = null;
+  pendingCopyValues = null;
 
   renderDeletedList();
   dom.modal.classList.add('is-open');
@@ -417,6 +488,9 @@ document.addEventListener('click', (event) => {
       break;
     case 'restore-history-entry':
       restoreHistoryEntry(Number(target.dataset.id));
+      break;
+    case 'copy-balance':
+      copyBalanceToClipboard();
       break;
     case 'close-modal':
       closeModal();
